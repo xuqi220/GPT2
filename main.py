@@ -21,6 +21,10 @@ class CasualSelfAttention(nn.Module):
         assert self.config.n_embd % self.config.n_head == 0
         self.c_attn = nn.Linear(self.config.n_embd, 3*self.config.n_embd)
         self.c_proj = nn.Linear(self.config.n_embd, self.config.n_embd)
+        self.register_buffer(
+            "bias", 
+            torch.tril(torch.ones(self.config.block_size, self.config.block_size)).view(1,1, self.config.block_size,self.config.block_size)
+        )
     
     def forward(self, x):
         # batch_size, Sequence length, embedding_size
@@ -28,25 +32,25 @@ class CasualSelfAttention(nn.Module):
         # transferred by W_q, W_k, W_v
         qkv = self.c_attn(x)
         # get qkv
-        q,k,v = qkv.split(self.n_embd,dim=2)
+        q,k,v = qkv.split(self.config.n_embd,dim=2)
         # multi-head qkv
         q = q.view(B, T, self.config.n_head, C//self.config.n_head).transpose(1,2)
         k = k.view(B, T, self.config.n_head, C//self.config.n_head).transpose(1,2)
         v = v.view(B, T, self.config.n_head, C//self.config.n_head).transpose(1,2)
-        # # attention
-        # attn = (q @ k.transpose(-2, -1))*(1.0/math.sqrt(q.shape[-1]))
-        # # mask previous tokens
-        # attn = attn.masked_fill(self.bias[:,:,T,T]==0, float("-inf"))
-        # # cal attn score 
-        # attn = F.softmax(attn, dim=-1)
-        # # cal output
-        # y = attn @ v
+        # attention
+        attn = (q @ k.transpose(-2, -1))*(1.0/math.sqrt(q.shape[-1]))
+        # mask previous tokens
+        attn = attn.masked_fill(self.bias[:,:,T,T]==0, float("-inf"))
+        # cal attn score 
+        attn = F.softmax(attn, dim=-1)
+        # cal output
+        y = attn @ v
         # 上面计算attention的代码等价于scaled_dot_product_attention函数
-        y = F.scaled_dot_product_attention(q, k, v, is_causal=True) # flash attention
+        # y = F.scaled_dot_product_attention(q, k, v, is_causal=True) # flash attention
         y = y.transpose(1,2).contiguous().view(B,T,C)
         y = self.c_proj(y)
         return y
-        
+
 class MLP(nn.Module):
     def __init__(self, config) -> None:
         super().__init__()
@@ -78,7 +82,6 @@ class block(nn.Module):
         return x
 
 class GPT(nn.Module):
-    
     def __init__(self, config:GPTConfig):
         super().__init__()
         self.config = config
@@ -154,11 +157,30 @@ class GPT(nn.Module):
 
         return model
 
-
+num_return_sequence = 5
+max_length_sequence = 30
 
 model = GPT.from_pretrained("gpt2")
 model.eval()
 model.to("cuda")
         
+enc = tiktoken.get_encoding("gpt2")
+tokens =enc.encode("hello, i'm a language model")
+tokens = torch.tensor(tokens, dtype=torch.long)
+tokens = tokens.unsqueeze(0).repeat(num_return_sequence, 1)
+x = tokens.to("cuda")
 
+torch.manual_seed(233)
+torch.cuda.manual_seed(233)
+
+while x.size(1)<max_length_sequence:
+    with torch.no_grad():
+        logits = model(x) # (B,T,Vocab_size)
+        logits = logits[:,-1,:] # (B, Vocab_size)
+        probs = F.softmax(logits, dim=-1)
+        top_probs, top_indices = torch.topk(probs, 50, dim=-1)
+        ix = torch.multinomial(top_probs, 1)
+        xcol = torch.gather(top_indices, -1, ix)
+        x = torch.cat((x, xcol), dim=1)
+        
 
