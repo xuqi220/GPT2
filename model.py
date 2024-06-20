@@ -95,7 +95,7 @@ class GPT(nn.Module):
         ))
         self.lm_head = nn.Linear(self.config.n_embd, self.config.vocab_size, bias=False)
     
-    def forward(self,idx):
+    def forward(self,idx, targets=None):
         B,T = idx.size()
         pos = torch.arange(0, T, dtype=torch.long, device=idx.device)
         pos_emb = self.transformer.wpe(pos)
@@ -104,10 +104,12 @@ class GPT(nn.Module):
         for block in self.transformer.h:
             x = block(x)
         x = self.transformer.ln_f(x)
-        logits = self.lm_head(x)
-        return logits
-        
-        
+        logits = self.lm_head(x) # (B, T, vocab_size)
+        loss = None
+        if targets is not None:
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+        return logits, loss
+           
     @classmethod
     def from_pretrained(cls, model_type):
         """Loads pretrained GPT-2 model weights from huggingface"""
@@ -159,15 +161,26 @@ class GPT(nn.Module):
     
 #--------------------------inference--------------------------------
 if __name__=="__main__":
+    enc = tiktoken.get_encoding("gpt2")
     if torch.cuda.is_available():  
-        device = "cuda" 
+        device = "cuda:0" 
     elif torch.backends.mps.is_available():
         device = "mps"
     else:
         device = "cpu"
-        
     num_return_sequence = 5
     max_length_sequence = 30
+
+    with open("data.txt", "r", encoding="utf-8") as fi:
+        text = fi.read()
+    text = text[:1000]
+    tokens = enc.encode(text)
+    B,T = 4, 32
+    buf = torch.tensor(tokens[:B*T+1])
+    buf = buf.to(device)
+    x = buf[:-1].view(B, T)
+    y = buf[1:].view(B, T)
+
 
     # init model from huggingface
     # model = GPT.from_pretrained("gpt2")
@@ -175,8 +188,16 @@ if __name__=="__main__":
     model = GPT(GPTConfig())
     model.eval()
     model.to(device)
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+    for i in range(50):
+        optimizer.zero_grad()
+        logits, loss = model(x, y)
+        loss.backward()
+        optimizer.step()
+        print(f"step {i}, loss {loss.item()}")
             
-    enc = tiktoken.get_encoding("gpt2")
+    
     tokens =enc.encode("hello")
     tokens = torch.tensor(tokens, dtype=torch.long)
     tokens = tokens.unsqueeze(0).repeat(num_return_sequence, 1)
@@ -184,11 +205,10 @@ if __name__=="__main__":
 
     torch.manual_seed(42)
     torch.cuda.manual_seed(42)
-
     while x.size(1)<max_length_sequence:
         with torch.no_grad():
             # 获取 next tokens logits
-            logits = model(x) # (B,T,Vocab_size)
+            logits, loss = model(x) # (B,T,Vocab_size)
             logits = logits[:,-1,:] # (B, Vocab_size)
             # 归一化
             probs = F.softmax(logits, dim=-1)
