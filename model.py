@@ -156,31 +156,51 @@ class GPT(nn.Module):
                     sd[k].copy_(sd_hf[k])
 
         return model
-
-num_return_sequence = 5
-max_length_sequence = 30
-
-model = GPT.from_pretrained("gpt2")
-model.eval()
-model.to("cuda")
+    
+#--------------------------inference--------------------------------
+if __name__=="__main__":
+    if torch.cuda.is_available():  
+        device = "cuda" 
+    elif torch.backends.mps.is_available():
+        device = "mps"
+    else:
+        device = "cpu"
         
-enc = tiktoken.get_encoding("gpt2")
-tokens =enc.encode("hello, i'm a language model")
-tokens = torch.tensor(tokens, dtype=torch.long)
-tokens = tokens.unsqueeze(0).repeat(num_return_sequence, 1)
-x = tokens.to("cuda")
+    num_return_sequence = 5
+    max_length_sequence = 30
 
-torch.manual_seed(233)
-torch.cuda.manual_seed(233)
+    # init model from huggingface
+    # model = GPT.from_pretrained("gpt2")
+    # random init
+    model = GPT(GPTConfig())
+    model.eval()
+    model.to(device)
+            
+    enc = tiktoken.get_encoding("gpt2")
+    tokens =enc.encode("hello")
+    tokens = torch.tensor(tokens, dtype=torch.long)
+    tokens = tokens.unsqueeze(0).repeat(num_return_sequence, 1)
+    x = tokens.to(device)
 
-while x.size(1)<max_length_sequence:
-    with torch.no_grad():
-        logits = model(x) # (B,T,Vocab_size)
-        logits = logits[:,-1,:] # (B, Vocab_size)
-        probs = F.softmax(logits, dim=-1)
-        top_probs, top_indices = torch.topk(probs, 50, dim=-1)
-        ix = torch.multinomial(top_probs, 1)
-        xcol = torch.gather(top_indices, -1, ix)
-        x = torch.cat((x, xcol), dim=1)
-        
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+
+    while x.size(1)<max_length_sequence:
+        with torch.no_grad():
+            # 获取 next tokens logits
+            logits = model(x) # (B,T,Vocab_size)
+            logits = logits[:,-1,:] # (B, Vocab_size)
+            # 归一化
+            probs = F.softmax(logits, dim=-1)
+            # 从top 50 的候选token中采样
+            top_probs, top_indices = torch.topk(probs, 50, dim=-1)
+            ix = torch.multinomial(top_probs, 1)
+            xcol = torch.gather(top_indices, -1, ix)
+            # 将预测的token和previous tokens拼接作为下一次输入
+            x = torch.cat((x, xcol), dim=1)
+    # 解码
+    for i in range(num_return_sequence):
+        tokens = x[i, :max_length_sequence].tolist()
+        text = enc.decode(tokens)
+        print(f">{text}")
 
