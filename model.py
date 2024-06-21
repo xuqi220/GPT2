@@ -21,6 +21,7 @@ class CasualSelfAttention(nn.Module):
         assert self.config.n_embd % self.config.n_head == 0
         self.c_attn = nn.Linear(self.config.n_embd, 3*self.config.n_embd)
         self.c_proj = nn.Linear(self.config.n_embd, self.config.n_embd)
+        self.FLAG = 1
         self.register_buffer(
             "bias", 
             torch.tril(torch.ones(self.config.block_size, self.config.block_size)).view(1,1, self.config.block_size,self.config.block_size)
@@ -29,24 +30,25 @@ class CasualSelfAttention(nn.Module):
     def forward(self, x):
         # batch_size, Sequence length, embedding_size
         B,T,C = x.shape 
-        # transferred by W_q, W_k, W_v
+        # transferred by W_q, W_k, W_v (B, T, 3*C)
         qkv = self.c_attn(x)
-        # get qkv
+        # get qkv (B, T, C)
         q,k,v = qkv.split(self.config.n_embd,dim=2)
-        # multi-head qkv
+        # multi-head qkv ()
         q = q.view(B, T, self.config.n_head, C//self.config.n_head).transpose(1,2)
         k = k.view(B, T, self.config.n_head, C//self.config.n_head).transpose(1,2)
         v = v.view(B, T, self.config.n_head, C//self.config.n_head).transpose(1,2)
-        # attention
+        # attention (B, n_head, T, T)
         attn = (q @ k.transpose(-2, -1))*(1.0/math.sqrt(q.shape[-1]))
         # mask previous tokens
         attn = attn.masked_fill(self.bias[:,:,T,T]==0, float("-inf"))
-        # cal attn score 
+        # cal attn score (B, n_head, T, T)
         attn = F.softmax(attn, dim=-1)
-        # cal output
+        # cal output (B, n_head, T, C//n_head)
         y = attn @ v
         # 上面计算attention的代码等价于scaled_dot_product_attention函数
         # y = F.scaled_dot_product_attention(q, k, v, is_causal=True) # flash attention
+        # (B, T, C)
         y = y.transpose(1,2).contiguous().view(B,T,C)
         y = self.c_proj(y)
         return y
@@ -59,7 +61,8 @@ class MLP(nn.Module):
         self.c_fc = nn.Linear(self.config.n_embd, 4*self.config.n_embd)
         self.gelu = nn.GELU(approximate='tanh')
         self.c_proj = nn.Linear(4*self.config.n_embd, self.config.n_embd)
-    
+        self.FLAG = 1
+        
     def forward(self, x):
         x = self.c_fc(x)
         x = self.gelu(x)
@@ -67,6 +70,7 @@ class MLP(nn.Module):
         return x
 
 class block(nn.Module):
+    # each block consists of layernormal, attention, MLP
     def __init__(self, config:GPTConfig) -> None:
         super().__init__()
         self.config = config
@@ -77,6 +81,7 @@ class block(nn.Module):
         self.mlp = MLP(self.config)
     
     def forward(self,x):
+        # residual connection
         x = x + self.attn(self.ln_1(x))
         x = x + self.mlp(self.ln_2(x))
         return x
@@ -87,13 +92,37 @@ class GPT(nn.Module):
         self.config = config
         
         self.transformer = nn.ModuleDict(dict(
-            wte = nn.Embedding(self.config.vocab_size, self.config.n_embd), # 词向量
-            wpe = nn.Embedding(self.config.block_size, self.config.n_embd), # 位置向量
-            h = nn.ModuleList([block(self.config) for _ in range(self.config.n_layer)]), # transformer blocks
-            ln_f = nn.LayerNorm(self.config.n_embd) # layerNormal
+            # 词向量
+            wte = nn.Embedding(self.config.vocab_size, self.config.n_embd), 
+            # 位置向量
+            wpe = nn.Embedding(self.config.block_size, self.config.n_embd), 
+            # transformer blocks
+            h = nn.ModuleList([block(self.config) for _ in range(self.config.n_layer)]), 
+            # layerNormal
+            ln_f = nn.LayerNorm(self.config.n_embd) 
             
         ))
+        # pred token
         self.lm_head = nn.Linear(self.config.n_embd, self.config.vocab_size, bias=False)
+        
+        # weight share scheme
+        self.transformer.wte.weight = self.lm_head.weight
+        
+        # init weight
+        # Apply fn(init_weight) recursively to every submodule
+        self.apply(self.init_weight)
+    
+    def init_weight(self, module):
+        # init model weight
+        std = 0.02
+        if isinstance(module, nn.Linear):
+            if hasattr(module, "FLAG"):
+                std *= (2*self.config.n_layer)**-0.5
+            torch.nn.init.normal_(module.weight, mean=0.0, std=std)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=std)
     
     def forward(self,idx, targets=None):
         B,T = idx.size()
@@ -159,12 +188,11 @@ class GPT(nn.Module):
 
         return model
     
-#-----------------------------------------------------------------
-
 class DataLoaderLite:
     def __init__(self,B,T):
-        self.B = B
-        self.T = T
+        self.B = B # batch size
+        self.T = T # sequence length
+        # get tokens for train
         with open("data.txt","r",encoding="utf-8") as fi:
             text = fi.read()
         enc = tiktoken.get_encoding("gpt2")
@@ -177,6 +205,7 @@ class DataLoaderLite:
 
     def next_batch(self):
         B, T = self.B, self.T
+        # sample tokens
         buf = self.tokens[self.current_position:self.current_position+B*T+1]
         x = buf[:-1].view(B, T)
         y = buf[1:].view(B, T)
@@ -187,21 +216,26 @@ class DataLoaderLite:
 
 
 if __name__=="__main__":
-    enc = tiktoken.get_encoding("gpt2")
+    # 检测可用设备
     if torch.cuda.is_available():  
         device = "cuda:0" 
     elif torch.backends.mps.is_available():
         device = "mps"
     else:
         device = "cpu"
+    # 设置随机种子
+    torch.manual_seed(42)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(42)
 
     # init model from huggingface
     # model = GPT.from_pretrained("gpt2")
+    
     # random init
     model = GPT(GPTConfig())
-    model.eval()
+    # train model
     model.to(device)
-
+    model.train()
     train_loader = DataLoaderLite(B=5, T=128)
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
     for i in range(100):
@@ -214,9 +248,10 @@ if __name__=="__main__":
         print(f"step {i}, loss {loss.item()}")
             
 
-
+    import sys; sys.exit(0)
 #--------------------------------inference-----------------------------------
-    
+    model.eval()
+    enc = tiktoken.get_encoding("gpt2")
     num_return_sequence = 5
     max_length_sequence = 30
 
@@ -225,8 +260,6 @@ if __name__=="__main__":
     tokens = tokens.unsqueeze(0).repeat(num_return_sequence, 1)
     x = tokens.to(device)
 
-    torch.manual_seed(42)
-    torch.cuda.manual_seed(42)
     while x.size(1)<max_length_sequence:
         with torch.no_grad():
             # 获取 next tokens logits
