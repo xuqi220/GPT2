@@ -81,7 +81,7 @@
 
 # 致谢
 
-这里非常感谢karpathy大神，建议大家跟着他的这两个仓库学习
+非常感谢karpathy大神
 
 https://github.com/karpathy/nanoGPT
 
