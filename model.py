@@ -159,7 +159,33 @@ class GPT(nn.Module):
 
         return model
     
-#--------------------------inference--------------------------------
+#-----------------------------------------------------------------
+
+class DataLoaderLite:
+    def __init__(self,B,T):
+        self.B = B
+        self.T = T
+        with open("data.txt","r",encoding="utf-8") as fi:
+            text = fi.read()
+        enc = tiktoken.get_encoding("gpt2")
+        tokens = enc.encode(text)
+        self.tokens = torch.tensor(tokens)
+        print(f"loaded {len(self.tokens)} tokens")
+        print(f"1 epoch = {len(self.tokens)//(B*T)} batches")
+
+        self.current_position = 0
+
+    def next_batch(self):
+        B, T = self.B, self.T
+        buf = self.tokens[self.current_position:self.current_position+B*T+1]
+        x = buf[:-1].view(B, T)
+        y = buf[1:].view(B, T)
+        self.current_position += B*T
+        if self.current_position>len(self.tokens):
+            self.current_position=0
+        return x, y
+
+
 if __name__=="__main__":
     enc = tiktoken.get_encoding("gpt2")
     if torch.cuda.is_available():  
@@ -168,19 +194,6 @@ if __name__=="__main__":
         device = "mps"
     else:
         device = "cpu"
-    num_return_sequence = 5
-    max_length_sequence = 30
-
-    with open("data.txt", "r", encoding="utf-8") as fi:
-        text = fi.read()
-    text = text[:1000]
-    tokens = enc.encode(text)
-    B,T = 4, 32
-    buf = torch.tensor(tokens[:B*T+1])
-    buf = buf.to(device)
-    x = buf[:-1].view(B, T)
-    y = buf[1:].view(B, T)
-
 
     # init model from huggingface
     # model = GPT.from_pretrained("gpt2")
@@ -189,15 +202,24 @@ if __name__=="__main__":
     model.eval()
     model.to(device)
 
+    train_loader = DataLoaderLite(B=5, T=128)
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
-    for i in range(50):
+    for i in range(100):
+        x, y = train_loader.next_batch()
+        x, y = x.to(device), y.to(device)
         optimizer.zero_grad()
         logits, loss = model(x, y)
         loss.backward()
         optimizer.step()
         print(f"step {i}, loss {loss.item()}")
             
+
+
+#--------------------------------inference-----------------------------------
     
+    num_return_sequence = 5
+    max_length_sequence = 30
+
     tokens =enc.encode("hello")
     tokens = torch.tensor(tokens, dtype=torch.long)
     tokens = tokens.unsqueeze(0).repeat(num_return_sequence, 1)
