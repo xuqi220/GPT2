@@ -54,6 +54,10 @@ def model_size(params_total):
     gpu_memory = 40e9 # 40 GB A100 GPU, roughly
     print(f"memory ratio taken up just for parameters: {params_and_buffers_bytes / gpu_memory * 100:.2f}%")
 
+def est_FLOPs():
+    pass
+
+
 # compare our param count to that reported by PyTorch
 ms = num_of_params(GPTConfig())
 params_total = ms['total']
