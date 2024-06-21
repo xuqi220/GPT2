@@ -1,12 +1,12 @@
 # GPT-2
 
-本项目是对GPT2（124M）模型结构的复现和训练
+本项目实现了对GPT2（124M）模型结构的复现和训练
 
 # 快速开始
 
 * `model.py` GPT2模型结构。具体介绍请参考代码注释，下面根据个人情况记录一下细节：
     
-1. **Token Embedding层和llm_head参数共享**
+1. **Token Embedding层和lm_head参数共享**
    
    Token Embedding 和 lm_head 分别是将token映射成为向量和将向量映射成为token, 他们的weight属性的shape=(vocab_size * n_embd)。nn.Linear() 的forward() 调用的是F.linear()函数，具体参考pytorch[官方文档](https://pytorch.org/docs/stable/generated/torch.nn.functional.linear.html#torch.nn.functional.linear)。另外为什么共享？[依据在这里](https://arxiv.org/abs/1608.05859)论文还没看，看后补上
     
@@ -47,7 +47,7 @@
     for i in range(n):
         x += torch.randn(768)
     print(x.std())
-    tensor(9.6580)
+    # tensor(9.6580)
    ```
    我们发现tensor`x`经过多次残差连接后他的方差变大了！！！为了缓解这种现象，我们对其进行scalling,并选择了残差链接的次数作为缩放因子。
     ```
@@ -58,11 +58,12 @@
     for i in range(n):
         x += n**-0.5 * torch.randn(768)
     print(x.std())
-    tensor(1.0784)
+    # tensor(1.0784)
    ```
    最后采用的方差为 `std *= (2*self.config.n_layer)**-0.5`，2的原因是每个block使用了两个残差链接。
 
 * `model_size.py`对模型参数量的估计
+
 
 
 
