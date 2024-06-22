@@ -54,8 +54,38 @@ def model_size(params_total):
     gpu_memory = 40e9 # 40 GB A100 GPU, roughly
     print(f"memory ratio taken up just for parameters: {params_and_buffers_bytes / gpu_memory * 100:.2f}%")
 
-def est_FLOPs():
-    pass
+def est_FLOPs(config:GPTConfig):
+    out = OrderedDict()
+    head_size = config.n_embd // config.n_head
+
+    # attention blocks
+    # 1) the projection to key, query, values
+    out['attention/kqv'] = 2 * config.block_size * (config.n_embd * 3*config.n_embd)
+    # 2) calculating the attention scores
+    out['attention/scores'] = 2 * config.block_size * config.block_size * config.n_embd
+    # 3) the reduction of the values (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+    out['attention/reduce'] = 2 * config.n_head * (config.block_size * config.block_size * head_size)
+    # 4) the final linear projection
+    out['attention/proj'] = 2 * config.block_size * (config.n_embd * config.n_embd)
+    out['attention'] = sum(out['attention/'+k] for k in ['kqv', 'scores', 'reduce', 'proj'])
+
+    # MLP blocks
+    ffw_size = 4*config.n_embd # feed forward size
+    out['mlp/ffw1'] = 2 * config.block_size * (config.n_embd * ffw_size)
+    out['mlp/ffw2'] = 2 * config.block_size * (ffw_size * config.n_embd)
+    out['mlp'] = out['mlp/ffw1'] + out['mlp/ffw2']
+    
+    # the transformer and the rest of it
+    out['block'] = out['attention'] + out['mlp']
+    out['transformer'] = config.n_layer * out['block']
+    out['dense'] = 2 * config.block_size * (config.n_embd * config.vocab_size)
+
+    # forward,backward,total
+    out['forward_total'] = out['transformer'] + out['dense']
+    out['backward_total'] = 2 * out['forward_total'] # use common estimate of bwd = 2*fwd
+    out['total'] = out['forward_total'] + out['backward_total']
+
+    return out
 
 
 # compare our param count to that reported by PyTorch
@@ -68,6 +98,10 @@ for k,v in ms.items():
     print(f"{k:20s} {v:10d} {v/params_total*100:10.4f}")
 model_size(params_total)
 
-# 注意上述计算方式忽略了中间过程变量，在实际使用中，模型占用的内存比这个要多，因为pytorch要维护一个计算图，记录中间过程，
-# 这些中间过程将用于反向传播过程，比如gradient-checkpoint技术就是通过优化中间过程变量来减少内存占用的
+# compare our param count to that reported by PyTorch
+f = est_FLOPs(GPTConfig())
+flops_total = f['forward_total']
+print(f"{'name':20s} {'flops':14s} {'ratio (%)':10s}")
+for k,v in f.items():
+    print(f"{k:20s} {v:14d} {v/flops_total*100:10.4f}")
 
