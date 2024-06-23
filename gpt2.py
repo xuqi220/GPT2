@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import time
 import math
 import torch
 import tiktoken
@@ -239,13 +240,18 @@ if __name__=="__main__":
     train_loader = DataLoaderLite(B=5, T=128)
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
     for i in range(100):
+        t0 = time.time()
         x, y = train_loader.next_batch()
         x, y = x.to(device), y.to(device)
         optimizer.zero_grad()
         logits, loss = model(x, y)
         loss.backward()
         optimizer.step()
-        print(f"step {i}, loss {loss.item()}")
+        torch.cuda.synchronize()
+        t1 = time.time()
+        dt = (t1-10)*1000
+        tokens_per_sec = (train_loader.B*train_loader.T)/(t1-t0)
+        print(f"step {i} | loss {loss.item():.2f} | dt {dt:.2f}ms | tokens/sec {tokens_per_sec:.2f}")
             
 
     import sys; sys.exit(0)
