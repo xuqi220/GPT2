@@ -99,8 +99,9 @@
    step 49 | loss 6.17 | dt 301.22ms | tokens/sec 54391.98
    ```
 
-1. 模型编译
-   `torch.compile` 通过分析模型，并优化模型读写策略提高模型的吞吐量。
+* 模型编译
+   
+   `torch.compile`通过分析模型，并优化模型读写策略提高模型的吞吐量。
    ```
    model = torch.compile(model) # line 246
    ```
@@ -112,7 +113,7 @@
    step 49 | loss 6.17 | dt 175.17ms | tokens/sec 93533.17
    ```
 
-2. Falsh Attention
+* Falsh Attention
     ```
     y = F.scaled_dot_product_attention(q, k, v, is_causal=True) # line 53 flash attention
     ```
@@ -123,7 +124,7 @@
     ...
     step 49 | loss 6.17 | dt 145.36ms | tokens/sec 112716.60
     ```
-3. 超参数采用16、32、64、128...的倍数
+* 超参数采用16、32、64、128...的倍数
     ```
     vocab_size: int = 50304 # line 13 50257->50304
     ```
