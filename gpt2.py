@@ -288,19 +288,28 @@ if __name__=="__main__":
     model = torch.compile(model)
     # 将参数分组采用weight decay，配置优化器
     optimizer = model.configure_optimizers(weight_decay=0.1, learning_rate=6e-4, device_type=device)
+    # 梯度累积
+    total_batch_size = 524288 # 0.5M tokens based on GPT-3 Papers
+    B, T = 16, 1024
+    total_batch_size%(B*T) == 0
+    grad_accum_steps = total_batch_size//(B*T)
+    print(f"total desired batch size: {total_batch_size}")
+    print(f"=> calculated gradient accumulation steps: {grad_accum_steps}")
+    
     # 数据集加载 
     train_loader = DataLoaderLite(B=16, T=1024)
     # train model
     for step in range(max_steps):
         t0 = time.time()
-        x, y = train_loader.next_batch()
-        x, y = x.to(device), y.to(device)
         optimizer.zero_grad()
-        # 混合精度训练，因为采用了bfloat16（表示范围与FP32一致）所以不需要梯度缩放
-        with torch.autocast(device_type=device, dtype=torch.bfloat16):
-            logits, loss = model(x, y)
-            # import code; code.interact(local=locals())
-        loss.backward()
+        for micro_step in range(grad_accum_steps):
+            x, y = train_loader.next_batch()
+            x, y = x.to(device), y.to(device)
+            # 混合精度训练，因为采用了bfloat16（表示范围与FP32一致）所以不需要梯度缩放
+            with torch.autocast(device_type=device, dtype=torch.bfloat16):
+                logits, loss = model(x, y)
+                # import code; code.interact(local=locals())
+            loss.backward() # 梯度累加
         norm = torch.nn.utils.clip_grad_norm_(model.parameters(),1.0) # 梯度裁剪
         lr = get_lr(step) # 动态学习率
         for param_group in optimizer.param_groups:
@@ -309,7 +318,7 @@ if __name__=="__main__":
         torch.cuda.synchronize()
         t1 = time.time()
         dt = (t1-t0)*1000
-        tokens_per_sec = (train_loader.B*train_loader.T)/(t1-t0)
+        tokens_per_sec = (total_batch_size)/(t1-t0)
         print(f"step: {step} | loss: {loss.item():.6f} | lr: {lr:.2f} | norm: {norm:.4f} | dt: {dt:.2f}ms | tokens/sec: {tokens_per_sec:.2f}")
             
 
