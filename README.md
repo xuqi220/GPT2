@@ -1,6 +1,6 @@
 # GPT-2
 
-本项目通过实现GPT2（124M Parameters）学习大模型相关技术。
+本项目通过实现GPT2（124M Parameters）学习大模型相关技术。实验在单节点 3*A100 80G GPUs 设备上进行。
 
 # 快速开始
 1. `gpt2.py` GPT2模型结构。具体介绍请参考代码注释，下面根据个人情况记录一下细节：
@@ -63,6 +63,7 @@
 
     (3)**加速训练**
     
+    通过下面的加速方法，模型的吞吐量增加了10倍！！
    * [torch.set_float32_matmul_precision("high")](https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html)。
         ```
         torch.set_float32_matmul_precision("high") # line 235
@@ -136,7 +137,7 @@
         step 49 | loss 6.20 | dt 111.18ms | tokens/sec 147362.33
         ```
 
-2. `gpt2_size.py`对模型参数量的估计
+2. `gpt2_size.py`模型参数量估计
   
    (1) model_size()函数忽略了中间过程变量，在实际使用中，模型占用的内存比这个要多，因为pytorch要维护一个计算图，记录中间过程，这些中间过程将用于反向传播过程，比如gradient-checkpoint技术就是通过优化中间过程变量来减少内存占用的
    

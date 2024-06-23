@@ -1,10 +1,11 @@
-from dataclasses import dataclass
 import time
 import math
 import torch
+import inspect
 import tiktoken
 import torch.nn as nn
 import torch.nn.functional as F
+from dataclasses import dataclass
 
 # model config
 @dataclass
@@ -192,6 +193,29 @@ class GPT(nn.Module):
 
         return model
     
+    def configure_optimizers(self, weight_decay, learning_rate, device_type):
+        # start with all of the candidate parameters (that require grad)
+        param_dict = {pn: p for pn, p in self.named_parameters()}
+        param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad}
+        # create optim groups. Any parameters that is 2D will be weight decayed, otherwise no.
+        # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
+        decay_params = [p for n, p in param_dict.items() if p.dim() >= 2]
+        nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2]
+        optim_groups = [
+            {'params': decay_params, 'weight_decay': weight_decay},
+            {'params': nodecay_params, 'weight_decay': 0.0}
+        ]
+        num_decay_params = sum(p.numel() for p in decay_params)
+        num_nodecay_params = sum(p.numel() for p in nodecay_params)
+        print(f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters")
+        print(f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters")
+        # Create AdamW optimizer and use the fused version if it is available
+        fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
+        use_fused = fused_available and device_type == "cuda"
+        print(f"using fused AdamW: {use_fused}")
+        optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=(0.9, 0.95), eps=1e-8, fused=use_fused)
+        return optimizer
+    
 class DataLoaderLite:
     def __init__(self,B,T):
         self.B = B # batch size
@@ -227,40 +251,66 @@ if __name__=="__main__":
         device = "mps"
     else:
         device = "cpu"
+    
     # 设置随机种子
     torch.manual_seed(42)
     if torch.cuda.is_available():
         torch.cuda.manual_seed(42)
-        
+    
+    # 利用TF32加速训练
     torch.set_float32_matmul_precision("high")
-
+    
+    max_lr = 6e-4
+    min_lr = 0.1*max_lr
+    warmup_steps = 10
+    max_steps = 50
+    def get_lr(step): 
+        # 前半段是线性增加的
+        if step<warmup_steps:
+            return max_lr * (step+1)/warmup_steps
+        # 超过max_steps取最小
+        if step>max_steps:
+            return min_lr
+        # 中间过程是呈余弦曲线衰减直到min_lr
+        decay_ratio = (step-warmup_steps)/(max_steps-warmup_steps) # 衰减率越来越大
+        assert 0<=decay_ratio<=1
+        coeff = 0.5*(1.0+math.cos(math.pi*decay_ratio)) # 衰减系数越来越小
+        return min_lr+coeff*(max_lr-min_lr)
+        
     # init model from huggingface
     # model = GPT.from_pretrained("gpt2")
     
     # random init
     model = GPT(GPTConfig())
-    
-    # train model
     model.to(device)
     model.train()
+    # 编译模型，优化内存读写，加速训练
     model = torch.compile(model)
+    # 将参数分组采用weight decay，配置优化器
+    optimizer = model.configure_optimizers(weight_decay=0.1, learning_rate=6e-4, device_type=device)
+    # 数据集加载 
     train_loader = DataLoaderLite(B=16, T=1024)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
-    for i in range(50):
+    # train model
+    for step in range(max_steps):
         t0 = time.time()
         x, y = train_loader.next_batch()
         x, y = x.to(device), y.to(device)
         optimizer.zero_grad()
+        # 混合精度训练，因为采用了bfloat16（表示范围与FP32一致）所以不需要梯度缩放
         with torch.autocast(device_type=device, dtype=torch.bfloat16):
             logits, loss = model(x, y)
             # import code; code.interact(local=locals())
         loss.backward()
+        norm = torch.nn.utils.clip_grad_norm_(model.parameters(),1.0) # 梯度裁剪
+        lr = get_lr(step) # 动态学习率
+        for param_group in optimizer.param_groups:
+            param_group["lr"] = lr
         optimizer.step()
         torch.cuda.synchronize()
         t1 = time.time()
         dt = (t1-t0)*1000
         tokens_per_sec = (train_loader.B*train_loader.T)/(t1-t0)
-        print(f"step {i} | loss {loss.item():.2f} | dt {dt:.2f}ms | tokens/sec {tokens_per_sec:.2f}")
+        print(f"step: {step} | loss: {loss.item():.6f} | lr: {lr:.2f} | norm: {norm:.4f} | dt: {dt:.2f}ms | tokens/sec: {tokens_per_sec:.2f}")
             
 
     import sys; sys.exit(0)
