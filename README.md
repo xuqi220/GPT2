@@ -62,10 +62,14 @@
    ```
    最后采用的方差为 `std *= (2*self.config.n_layer)**-0.5`，2的原因是每个block使用了两个残差链接。
 
-3. **如何利用A100加速训练？**
-   <img src="assets/a100_tensor_core.png">
-
-   上图来源于[英伟达白皮书 P-27](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)。A100支持多种类型的浮点数，浮点数的表示被分为符号位、范围、精度三个部分，常用的有FP32， FP16，BF16。Pytorch框架在默认情况下通常适用FP32类型进行表示和计算。A100提供了利用TF32的加速方案，计算时利用TF32数据类型，与FP32相比TF32精度少了13位，减少了计算量但是牺牲了一定的精度。pytorch提供了该加速方法的API [torch.set_float32_matmul_precision("high")](https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html)。
+3. **加速训练**
+  
+* [torch.set_float32_matmul_precision("high")](https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html)。
+  ```
+  torch.set_float32_matmul_precision("high") # line 235
+  ```
+    <img src="assets/a100_tensor_core.png">上图来源于[英伟达白皮书 P-27](https://images.nvidia.com/aem-dam/en-zz/Solutions/data-center/nvidia-ampere-architecture-whitepaper.pdf)。A100支持多种类型的浮点数，浮点数的表示被分为符号位、范围、精度三个部分，常用的有FP32， FP16，BF16。Pytorch框架在默认情况下通常适用FP32类型进行表示和计算。A100提供了利用TF32的加速方案，计算时利用TF32数据类型，与FP32相比TF32精度少了13位，减少了计算量但是牺牲了一定的精度。pytorch提供了该加速方法的API 
+   
    ```
    # 加速前
    step 0 | loss 11.00 | dt 2217.17ms | tokens/sec 7389.60
@@ -82,7 +86,11 @@
    ```
    模型的吞吐量（每秒处理的token数量）增加了3倍！
 
-   另外，[混合精度训练](https://pytorch.org/tutorials/recipes/recipes/amp_recipe.html)也是一种加速训练的方式。
+* [混合精度训练](https://pytorch.org/tutorials/recipes/recipes/amp_recipe.html)
+   ```
+   with torch.autocast(device_type=device, dtype=torch.bfloat16): # line 254
+        logits, loss = model(x, y)
+   ```
    ```
    step 0 | loss 11.00 | dt 1480.05ms | tokens/sec 11069.93
    step 1 | loss 9.47 | dt 301.76ms | tokens/sec 54294.68
@@ -90,8 +98,42 @@
    ...
    step 49 | loss 6.17 | dt 301.22ms | tokens/sec 54391.98
    ```
-   模型的吞吐量又提升了！
 
+1. 模型编译
+   `torch.compile` 通过分析模型，并优化模型读写策略提高模型的吞吐量。
+   ```
+   model = torch.compile(model) # line 246
+   ```
+   ```
+   step 0 | loss 11.00 | dt 30385.38ms | tokens/sec 539.21
+   step 1 | loss 9.47 | dt 187.48ms | tokens/sec 87391.33
+   step 2 | loss 9.20 | dt 174.32ms | tokens/sec 93986.53
+   ...
+   step 49 | loss 6.17 | dt 175.17ms | tokens/sec 93533.17
+   ```
+
+2. Falsh Attention
+    ```
+    y = F.scaled_dot_product_attention(q, k, v, is_causal=True) # line 53 flash attention
+    ```
+    ```
+    step 0 | loss 11.00 | dt 25296.87ms | tokens/sec 647.67
+    step 1 | loss 9.47 | dt 156.03ms | tokens/sec 105008.22
+    step 2 | loss 9.20 | dt 144.72ms | tokens/sec 113210.73
+    ...
+    step 49 | loss 6.17 | dt 145.36ms | tokens/sec 112716.60
+    ```
+3. 超参数采用16、32、64、128...的倍数
+    ```
+    vocab_size: int = 50304 # line 13 50257->50304
+    ```
+   ```
+   step 0 | loss 10.98 | dt 25912.28ms | tokens/sec 632.29
+   step 1 | loss 9.51 | dt 125.21ms | tokens/sec 130849.63
+   step 2 | loss 9.33 | dt 119.33ms | tokens/sec 137294.25
+   ...
+   step 49 | loss 6.20 | dt 111.18ms | tokens/sec 147362.33
+   ```
 
 * `gpt2_size.py`对模型参数量的估计
   

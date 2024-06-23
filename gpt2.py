@@ -10,7 +10,7 @@ import torch.nn.functional as F
 @dataclass
 class GPTConfig:
     block_size: int = 1024
-    vocab_size: int = 50257
+    vocab_size: int = 50304
     n_layer: int = 12
     n_head: int = 12
     n_embd: int = 768
@@ -39,16 +39,19 @@ class CasualSelfAttention(nn.Module):
         q = q.view(B, T, self.config.n_head, C//self.config.n_head).transpose(1,2)
         k = k.view(B, T, self.config.n_head, C//self.config.n_head).transpose(1,2)
         v = v.view(B, T, self.config.n_head, C//self.config.n_head).transpose(1,2)
-        # attention (B, n_head, T, T)
-        attn = (q @ k.transpose(-2, -1))*(1.0/math.sqrt(q.shape[-1]))
-        # mask previous tokens
-        attn = attn.masked_fill(self.bias[:,:,:T,:T]==0, float("-inf"))
-        # cal attn score (B, n_head, T, T)
-        attn = F.softmax(attn, dim=-1)
-        # cal output (B, n_head, T, C//n_head)
-        y = attn @ v
+        
+        # # attention (B, n_head, T, T)
+        # attn = (q @ k.transpose(-2, -1))*(1.0/math.sqrt(q.shape[-1]))
+        # # mask previous tokens
+        # attn = attn.masked_fill(self.bias[:,:,:T,:T]==0, float("-inf"))
+        # # cal attn score (B, n_head, T, T)
+        # attn = F.softmax(attn, dim=-1)
+        # # cal output (B, n_head, T, C//n_head)
+        # y = attn @ v
+        
         # 上面计算attention的代码等价于scaled_dot_product_attention函数
-        # y = F.scaled_dot_product_attention(q, k, v, is_causal=True) # flash attention
+        y = F.scaled_dot_product_attention(q, k, v, is_causal=True) # flash attention
+        
         # (B, T, C)
         y = y.transpose(1,2).contiguous().view(B,T,C)
         y = self.c_proj(y)
@@ -240,6 +243,7 @@ if __name__=="__main__":
     # train model
     model.to(device)
     model.train()
+    model = torch.compile(model)
     train_loader = DataLoaderLite(B=16, T=1024)
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
     for i in range(50):
