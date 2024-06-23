@@ -302,6 +302,7 @@ if __name__=="__main__":
     for step in range(max_steps):
         t0 = time.time()
         optimizer.zero_grad()
+        # 梯度累积
         for micro_step in range(grad_accum_steps):
             x, y = train_loader.next_batch()
             x, y = x.to(device), y.to(device)
