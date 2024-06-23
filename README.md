@@ -7,7 +7,7 @@
    
    (1) **Token Embedding层和lm_head参数共享**
    
-   Token Embedding 和 lm_head 分别是将token映射成为向量和将向量映射成为token, 他们的weight属性的shape=(vocab_size * n_embd)。nn.Linear() 的forward() 调用的是F.linear()函数，具体参考pytorch[官方文档](https://pytorch.org/docs/stable/generated/torch.nn.functional.linear.html#torch.nn.functional.linear)。另外为什么共享？[依据在这里](https://arxiv.org/abs/1608.05859)论文还没看，看后补上
+   Token Embedding 和 lm_head 分别是将token映射成为向量和将向量映射成为token, 他们的weight的shape属性都是(vocab_size * n_embd)。nn.Linear() 的forward() 调用的是F.linear()函数，具体参考pytorch[官方文档](https://pytorch.org/docs/stable/generated/torch.nn.functional.linear.html#torch.nn.functional.linear)。另外为什么共享？[依据在这里](https://arxiv.org/abs/1608.05859)论文还没看，看后补上
     
     (2) **模型参数初始化--方差**
    ```
