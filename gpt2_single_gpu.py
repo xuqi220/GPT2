@@ -302,7 +302,6 @@ if __name__=="__main__":
     for step in range(max_steps):
         t0 = time.time()
         optimizer.zero_grad()
-        # 梯度累积
         for micro_step in range(grad_accum_steps):
             x, y = train_loader.next_batch()
             x, y = x.to(device), y.to(device)
@@ -310,6 +309,9 @@ if __name__=="__main__":
             with torch.autocast(device_type=device, dtype=torch.bfloat16):
                 logits, loss = model(x, y)
                 # import code; code.interact(local=locals())
+            # 由于是loss.backward()是梯度累加，所以先reduced by mean
+            # cross_entropy采用已经在mini_batch内取了均值所以这里只用除以梯度累积的步骤
+            loss = loss/grad_accum_steps 
             loss.backward() # 梯度累加
         norm = torch.nn.utils.clip_grad_norm_(model.parameters(),1.0) # 梯度裁剪
         lr = get_lr(step) # 动态学习率
@@ -320,7 +322,7 @@ if __name__=="__main__":
         t1 = time.time()
         dt = (t1-t0)*1000
         tokens_per_sec = (total_batch_size)/(t1-t0)
-        print(f"step: {step} | loss: {loss.item():.6f} | lr: {lr:.2f} | norm: {norm:.4f} | dt: {dt:.2f}ms | tokens/sec: {tokens_per_sec:.2f}")
+        print(f"step: {step} | loss: {loss.item():.6f} | lr: {lr:.4e} | norm: {norm:.4f} | dt: {dt:.2f}ms | tokens/sec: {tokens_per_sec:.2f}")
             
 
     import sys; sys.exit(0)
