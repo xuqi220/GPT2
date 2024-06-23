@@ -219,7 +219,7 @@ class DataLoaderLite:
 if __name__=="__main__":
     # 检测可用设备
     if torch.cuda.is_available():  
-        device = "cuda:0" 
+        device = "cuda" 
     elif torch.backends.mps.is_available():
         device = "mps"
     else:
@@ -247,7 +247,9 @@ if __name__=="__main__":
         x, y = train_loader.next_batch()
         x, y = x.to(device), y.to(device)
         optimizer.zero_grad()
-        logits, loss = model(x, y)
+        with torch.autocast(device_type=device, dtype=torch.bfloat16):
+            logits, loss = model(x, y)
+            # import code; code.interact(local=locals())
         loss.backward()
         optimizer.step()
         torch.cuda.synchronize()
