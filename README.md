@@ -66,7 +66,7 @@
     通过下面的加速方法，模型的吞吐量增加了10倍！！
    * [torch.set_float32_matmul_precision("high")](https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html)。
         ```
-        torch.set_float32_matmul_precision("high") # line 235
+        torch.set_float32_matmul_precision("high") # line 261
         ```
         <img src="assets/a100_tensor_core.png">
         
@@ -89,7 +89,7 @@
 
    * [混合精度训练](https://pytorch.org/tutorials/recipes/recipes/amp_recipe.html)
         ```
-        with torch.autocast(device_type=device, dtype=torch.bfloat16): # line 254
+        with torch.autocast(device_type=device, dtype=torch.bfloat16): # line 309
                 logits, loss = model(x, y)
         ```
         ```
@@ -104,7 +104,7 @@
    
         `torch.compile`通过分析模型，并优化模型读写策略提高模型的吞吐量。
         ```
-        model = torch.compile(model) # line 246
+        model = torch.compile(model) # line 288
         ```
         ```
         step 0 | loss 11.00 | dt 30385.38ms | tokens/sec 539.21
@@ -116,7 +116,7 @@
 
    * Falsh Attention
         ```
-        y = F.scaled_dot_product_attention(q, k, v, is_causal=True) # line 53 flash attention
+        y = F.scaled_dot_product_attention(q, k, v, is_causal=True) # line 54 flash attention
         ```
         ```
         step 0 | loss 11.00 | dt 25296.87ms | tokens/sec 647.67
@@ -127,7 +127,7 @@
         ```
    * 超参数采用16、32、64、128...的倍数
         ```
-        vocab_size: int = 50304 # line 13 50257->50304
+        vocab_size: int = 50304 # line 14 50257->50304
         ```
         ```
         step 0 | loss 10.98 | dt 25912.28ms | tokens/sec 632.29
@@ -148,7 +148,7 @@
     **FLOPs**（Floating Point Operations）指浮点运算次数，可以理解为描述模型需要的总计算量的单位。从拼写上容易与FLOPS弄混。
 
     本函数仅仅计算weight相关的FLOPs，忽略了softmax以及layernorm等相关的浮点数操作。例如对于A (BxC) @ B (CxD) -> (BxD) flops are 2\*B\*C\*D
-
+3. `gpt2_multi_gpus.py` 分布式训练
   
 
 # 致谢
