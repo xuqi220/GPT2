@@ -42,7 +42,7 @@ class CasualSelfAttention(nn.Module):
         # attention (B, n_head, T, T)
         attn = (q @ k.transpose(-2, -1))*(1.0/math.sqrt(q.shape[-1]))
         # mask previous tokens
-        attn = attn.masked_fill(self.bias[:,:,T,T]==0, float("-inf"))
+        attn = attn.masked_fill(self.bias[:,:,:T,:T]==0, float("-inf"))
         # cal attn score (B, n_head, T, T)
         attn = F.softmax(attn, dim=-1)
         # cal output (B, n_head, T, C//n_head)
@@ -228,18 +228,21 @@ if __name__=="__main__":
     torch.manual_seed(42)
     if torch.cuda.is_available():
         torch.cuda.manual_seed(42)
+        
+    torch.set_float32_matmul_precision("high")
 
     # init model from huggingface
     # model = GPT.from_pretrained("gpt2")
     
     # random init
     model = GPT(GPTConfig())
+    
     # train model
     model.to(device)
     model.train()
-    train_loader = DataLoaderLite(B=5, T=128)
+    train_loader = DataLoaderLite(B=16, T=1024)
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
-    for i in range(100):
+    for i in range(50):
         t0 = time.time()
         x, y = train_loader.next_batch()
         x, y = x.to(device), y.to(device)
@@ -249,7 +252,7 @@ if __name__=="__main__":
         optimizer.step()
         torch.cuda.synchronize()
         t1 = time.time()
-        dt = (t1-10)*1000
+        dt = (t1-t0)*1000
         tokens_per_sec = (train_loader.B*train_loader.T)/(t1-t0)
         print(f"step {i} | loss {loss.item():.2f} | dt {dt:.2f}ms | tokens/sec {tokens_per_sec:.2f}")
             
