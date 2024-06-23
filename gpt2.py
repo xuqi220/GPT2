@@ -211,7 +211,7 @@ class DataLoaderLite:
         x = buf[:-1].view(B, T)
         y = buf[1:].view(B, T)
         self.current_position += B*T
-        if self.current_position>len(self.tokens):
+        if self.current_position+B*T>len(self.tokens):
             self.current_position=0
         return x, y
 

@@ -1,6 +1,6 @@
 # GPT-2
 
-本项目实现了对GPT2（124M Parameters）模型结构的复现和训练
+本项目通过实现GPT2（124M Parameters）学习大模型相关技术。
 
 # 快速开始
 
