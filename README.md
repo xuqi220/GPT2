@@ -138,35 +138,17 @@
 
 2. `gpt2_size.py`对模型参数量的估计
   
-   * model_size()函数忽略了中间过程变量，在实际使用中，模型占用的内存比这个要多，因为pytorch要维护一个计算图，记录中间过程，这些中间过程将用于反向传播过程，比如gradient-checkpoint技术就是通过优化中间过程变量来减少内存占用的
+   (1) model_size()函数忽略了中间过程变量，在实际使用中，模型占用的内存比这个要多，因为pytorch要维护一个计算图，记录中间过程，这些中间过程将用于反向传播过程，比如gradient-checkpoint技术就是通过优化中间过程变量来减少内存占用的
    
-   * `est_FLOPs()`函数用来评估gpt2模型的浮点数操作，[这里是FLOPS、FLOPs和MACs的定义](https://zhuanlan.zhihu.com/p/649993943)
+   (2) `est_FLOPs()`函数用来评估gpt2模型的浮点数操作，[这里是FLOPS、FLOPs和MACs的定义](https://zhuanlan.zhihu.com/p/649993943)
    
-        **FLOPS**（Floating Point Operations per Second）指每秒浮点运算次数，可以理解为评估设备计算速度的单位。
+    **FLOPS**（Floating Point Operations per Second）指每秒浮点运算次数，可以理解为评估设备计算速度的单位。
     
-        **FLOPs**（Floating Point Operations）指浮点运算次数，可以理解为描述模型需要的总计算量的单位。从拼写上容易与FLOPS弄混。
+    **FLOPs**（Floating Point Operations）指浮点运算次数，可以理解为描述模型需要的总计算量的单位。从拼写上容易与FLOPS弄混。
 
-        本函数仅仅计算weight相关的FLOPs，忽略了softmax以及layernorm等相关的浮点数操作。例如对于A (BxC) @ B (CxD) -> (BxD) flops are 2\*B\*C\*D
-
-  
+    本函数仅仅计算weight相关的FLOPs，忽略了softmax以及layernorm等相关的浮点数操作。例如对于A (BxC) @ B (CxD) -> (BxD) flops are 2\*B\*C\*D
 
   
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 # 致谢
 
