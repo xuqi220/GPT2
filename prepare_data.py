@@ -75,9 +75,8 @@ if __name__ == '__main__':
                 arr = np.memmap(filename, dtype=dtype, mode='w+', shape=(shard_size,))
                 token_count = 0
 
-    # train.bin is ~18.5GB, val.bin ~9.5MB
-    # train has ~10B tokens (9,949,090,040)9,949,090,040
-    # val has ~4M tokens (4,434,897)
+    # train has ~10B tokens (9,035,582,198)
+    # val has ~5M tokens (4,899,304)
 
     # to read the bin files later, e.g. with numpy:
     # m = np.memmap('train.bin', dtype=np.uint16, mode='r')
