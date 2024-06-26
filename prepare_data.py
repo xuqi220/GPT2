@@ -1,5 +1,3 @@
-# saves the openwebtext dataset to a binary file for training. following was helpful:
-# https://github.com/HazyResearch/flash-attention/blob/main/training/src/datamodules/language_modeling_hf.py
 
 import os
 from tqdm import tqdm
@@ -50,26 +48,35 @@ if __name__ == '__main__':
         num_proc=num_proc,
     )
 
-    # concatenate all the ids in each dataset into one large file we can use for training
+    # split the ids in each dataset into multiple file we can use for training
+    shard_size = int(1e8) # 100M tokens per shard, total of 100 shards
+    total_batches = 4096 # split the large file into 4096 batches
     for split, dset in tokenized.items():
         arr_len = np.sum(dset['len'], dtype=np.uint64)
-        filename = os.path.join(os.path.dirname(__file__), f'{split}.bin')
+        print(f"{split} has {arr_len} tokens")
+        shard_idx = 0
+        # init shard
+        filename = os.path.join(os.path.dirname(__file__), f'{split}_{shard_idx}.bin')
         dtype = np.uint16 # (can do since enc.max_token_value == 50256 is < 2**16)
-        arr = np.memmap(filename, dtype=dtype, mode='w+', shape=(arr_len,))
-        total_batches = 1024
-
-        idx = 0
-        for batch_idx in tqdm(range(total_batches), desc=f'writing {filename}'):
+        arr = np.memmap(filename, dtype=dtype, mode='w+', shape=(shard_size,))
+        token_count = 0
+        # write each batch into shard
+        for batch_idx in tqdm(range(total_batches)):
             # Batch together samples for faster write
             batch = dset.shard(num_shards=total_batches, index=batch_idx, contiguous=True).with_format('numpy')
             arr_batch = np.concatenate(batch['ids'])
-            # Write into mmap
-            arr[idx : idx + len(arr_batch)] = arr_batch
-            idx += len(arr_batch)
-        arr.flush()
+            if token_count+len(arr_batch)<shard_size: # Write into current shard
+                arr[token_count : token_count + len(arr_batch)] = arr_batch
+                token_count += len(arr_batch)
+            else:# next shard
+                arr.flush()
+                shard_idx+=1
+                filename = os.path.join(os.path.dirname(__file__), f'{split}_{shard_idx}.bin')
+                arr = np.memmap(filename, dtype=dtype, mode='w+', shape=(shard_size,))
+                token_count = 0
 
     # train.bin is ~18.5GB, val.bin ~9.5MB
-    # train has ~9B tokens (9,035,582,198)
+    # train has ~10B tokens (9,949,090,040)9,949,090,040
     # val has ~4M tokens (4,434,897)
 
     # to read the bin files later, e.g. with numpy:
